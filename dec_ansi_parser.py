@@ -307,30 +307,34 @@ class Parser:
     def __init__(
         self, callback: Callable[["Parser", Action, int], None], debug: bool = False
     ):
-        self.trans = state_transitions
-        self.stream = None
-        self.cb = callback
+        self._trans = state_transitions
+        self._cb = callback
+        self._enable_debug = debug
 
-        # used to suppress an esc_dispatch after a 2-byte string terminator
-        self.esc_ended_string = False
         self.state = State.ground
         self.intermediate = ""
         # None is used for an unspecified parameter (vtparse assumes 0)
         self.parameters = Parameters([None])
-        self.enable_debug = debug
+        # used to suppress an esc_dispatch after a 2-byte string terminator
+        self.esc_ended_string = False
+
+    def reset(self) -> None:
+        self.state = State.ground
+        self.esc_ended_string = False
+        self.clear()
 
     def clear(self) -> None:
         self.intermediate = ""
         self.parameters = Parameters([None])
 
     def debug(self, *args: Any, **kwargs: Any) -> None:
-        if self.enable_debug:
+        if self._enable_debug:
             print(*args, **kwargs)
 
     def parse(self, data: IO[bytes]) -> None:
         for char, was_utf8 in try_unicode(data):
             # print(f"got: {char=}, {was_utf8=}")
-            trans_table = self.trans[self.state]
+            trans_table = self._trans[self.state]
             if was_utf8:
                 # unicode character
                 new_state, action = trans_table[0x7E]
@@ -392,9 +396,10 @@ class Parser:
                 self.esc_ended_string = False
                 if action is A.esc_dispatch and chr(char) == "\\":
                     return
-            self.cb(self, action, char)
+            self._cb(self, action, char)
 
 
+_UNKNOWN_TAG = "[[[UNKNOWN]]]"
 T = TypeVar("T")
 
 
@@ -438,7 +443,7 @@ def describe_exec(char: int) -> None:
     if char in control_chars:
         print(f"Execute {control_chars[char]} ({repr(chr(char))}, 0x{char:02x})")
     else:
-        print(f"Execute {repr(chr(char))} (0x{char:02x}) [[[UNKNOWN]]]")
+        print(f"Execute {repr(chr(char))} (0x{char:02x}) {_UNKNOWN_TAG}")
 
 
 def describe_esc(parser: Parser, char_: int) -> None:
@@ -506,7 +511,7 @@ def describe_esc(parser: Parser, char_: int) -> None:
 
 
 def describe_sgr(params: List[Union[Optional[int], List[Optional[int]]]]) -> None:
-    unknown_message = f"Unknown SGR sequence: {params} [[[UNKNOWN]]]"
+    unknown_message = f"Unknown SGR sequence: {params} {_UNKNOWN_TAG}"
     while params:
         p = params.pop(0)
         if isinstance(p, list):
@@ -787,7 +792,9 @@ def describe_csi(parser: Parser, char_: int) -> None:
         for param in params:
             assert not isinstance(param, list)
             if param is not None:
-                desc_parts.append(modes.get(param, f"Unknown parameter {param}"))
+                desc_parts.append(
+                    modes.get(param, f"Unknown mode parameter {param} {_UNKNOWN_TAG}")
+                )
 
         action = f"{action}: ".ljust(20)
         if not desc_parts:
@@ -844,7 +851,7 @@ def describe_unknown(name: str, parser: Parser, char: int) -> None:
         desc = f"{' '.join(parser.intermediate)} {chr(char)}"
     else:
         desc = chr(char)
-    print(f"Received {name} {desc} [[[UNKNOWN]]]")
+    print(f"Received {name} {desc} {_UNKNOWN_TAG}")
     if parser.parameters:
         print(f"  Parameters: {parser.parameters}")
 
