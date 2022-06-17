@@ -438,6 +438,8 @@ def describe_exec(char: int) -> None:
         0x08: "BS",
         0x09: "TAB",
         0x0A: "LF",
+        0x0B: "VT",
+        0x0C: "FF",
         0x0D: "CR",
     }
     if char in control_chars:
@@ -705,6 +707,8 @@ PRIVATE_MODES = {
     1060: "Set legacy keyboard emulation, i.e, X11R6",
     1061: "Set VT220 keyboard emulation",
     2004: "Set bracketed paste mode",
+    # mintty settings (see https://github.com/mintty/mintty/wiki/CtrlSeqs)
+    7727: "Enable application escape key mode (mintty)",
 }
 
 
@@ -771,6 +775,12 @@ def describe_csi(parser: Parser, char_: int) -> None:
                 print("Reset scrolling region (CSI r)")
             else:
                 print(f"Set scrolling region to rows {top}-{bottom} (CSI r)")
+        elif char == "s":
+            left = params.get(0, default=1)
+            right: Union[int, str] = params.get(1, default=0)
+            if right == 0:
+                right = "end"
+            print(f"Set margin to columns {left}-{right} (CSI s)")
         elif char == "t" and params.get(0, default=0) in (22, 23):
             action = {22: "Push", 23: "Pop"}[params.get(0, default=0)]
             what = {0: "icon and title", 1: "icon", 2: "title"}[
@@ -842,13 +852,16 @@ def describe_csi(parser: Parser, char_: int) -> None:
         version = {"": "primary", ">": "secondary", "=": "tertiary"}[intermediate]
         seq = f"CSI {intermediate + ' ' if intermediate else ''}{char}"
         print(f"Get {version} device attributes ({seq})")
+    elif intermediate == ">" and char == "q":
+        print("Request xterm name and version")
     else:
         describe_unknown("CSI", parser, char_)
 
 
 def describe_unknown(name: str, parser: Parser, char: int) -> None:
     if parser.intermediate:
-        desc = f"{' '.join(parser.intermediate)} {chr(char)}"
+        intermediates = " ".join({" ": "SP"}.get(x, x) for x in parser.intermediate)
+        desc = f"{intermediates} {chr(char)}"
     else:
         desc = chr(char)
     print(f"Received {name} {desc} {_UNKNOWN_TAG}")
