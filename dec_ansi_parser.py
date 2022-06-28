@@ -493,7 +493,7 @@ def describe_esc(parser: Parser, char_: int) -> None:
             "%0": "DEC Turkish",
             "%5": "DEC Supplemental Graphics",
             "&4": "DEC Cyrillic",
-        }[code]
+        }.get(code, f"unknown ({code!r}) {_UNKNOWN_TAG}")
         element = {"(": "G0", ")": "G1", "*": "G2", "+": "G3"}[parser.intermediate[0]]
         print(f"Set {element} character set to {charset}")
     elif parser.intermediate and parser.intermediate[0] in "-./":
@@ -505,7 +505,7 @@ def describe_esc(parser: Parser, char_: int) -> None:
             "H": "Hebrew Supplemental",
             "L": "Latin-Cyrillic",
             "M": "Latin-5 Supplemental",
-        }[char]
+        }.get(char, f"unknown ({char}) {_UNKNOWN_TAG}")
         element = {"-": "G1", ".": "G2", "/": "G3"}[parser.intermediate[0]]
         print(f"Set {element} character set to ISO {charset}")
     else:
