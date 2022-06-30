@@ -772,6 +772,9 @@ def describe_csi(parser: Parser, char_: int) -> Union[str, Lines]:
             action = {"L": "Insert", "M": "Delete"}[char]
             count = params.get(0, default=1)
             return f"{action} {count} {maybe_plural(count, 'line')} (CSI {char})"
+        if char == "P":
+            count = params.get(0, default=1)
+            return f"Delete {count} {maybe_plural(count, 'character')} right (CSI P)"
         if char in "ST":
             direction = {"S": "up", "T": "down"}[char]
             count = params.get(0, default=1)
