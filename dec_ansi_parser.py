@@ -399,7 +399,6 @@ class Parser:
             self._cb(self, action, char)
 
 
-_UNKNOWN_TAG = "[[[UNKNOWN]]]"
 T = TypeVar("T")
 
 
@@ -419,20 +418,44 @@ class Parameters(List[Union[Optional[int], List[Optional[int]]]]):
         return len(self) != 0 and self != [None]
 
 
-def describe_generic(parser: Parser, char: int) -> None:
+_UNKNOWN_TAG = "[[[UNKNOWN]]]"
+
+
+class Lines:
+    def __init__(self, lines: Union[None, str, List[str]] = None):
+        self.contents: List[str] = []
+        if lines is not None:
+            self += lines
+
+    def __iadd__(self, other: Any) -> "Lines":
+        if isinstance(other, Lines):
+            self.contents.extend(other.contents)
+        elif isinstance(other, str):
+            self.contents.append(other)
+        else:
+            self.contents.extend(other)
+        return self
+
+    def __str__(self) -> str:
+        return "\n".join(self.contents)
+
+
+def describe_generic(parser: Parser, char: int) -> Lines:
+    lines = Lines()
     if char != -1:
-        print(f"  Char: 0x{char:02x} ('{chr(char)}')")
+        lines += f"  Char: 0x{char:02x} ('{chr(char)}')"
     if parser.intermediate:
-        print(f"  {len(parser.intermediate)} Intermediate chars:")
+        lines += f"  {len(parser.intermediate)} Intermediate chars:"
         for c in parser.intermediate:
-            print(f"    0x{ord(c):02x} ('{c}')")
+            lines += f"    0x{ord(c):02x} ('{c}')"
     if parser.parameters:
-        print(f"  {len(parser.parameters)} Parameters:")
+        lines += f"  {len(parser.parameters)} Parameters:"
         for p in parser.parameters:
-            print(f"    {p:d}")
+            lines += f"    {p:d}"
+    return lines
 
 
-def describe_exec(char: int) -> None:
+def describe_exec(char: int) -> str:
     control_chars = {
         0x07: "BEL",
         0x08: "BS",
@@ -443,23 +466,22 @@ def describe_exec(char: int) -> None:
         0x0D: "CR",
     }
     if char in control_chars:
-        print(f"Execute {control_chars[char]} ({repr(chr(char))}, 0x{char:02x})")
-    else:
-        print(f"Execute {repr(chr(char))} (0x{char:02x}) {_UNKNOWN_TAG}")
+        return f"Execute {control_chars[char]} ({repr(chr(char))}, 0x{char:02x})"
+    return f"Execute {repr(chr(char))} (0x{char:02x}) {_UNKNOWN_TAG}"
 
 
-def describe_esc(parser: Parser, char_: int) -> None:
+def describe_esc(parser: Parser, char_: int) -> Union[str, Lines]:
     assert char_ >= 0
     char = chr(char_)
-    if char == "=":
-        print("Enter Application Keypad mode (DECKPAM)")
-    elif char == ">":
-        print("Enter Normal Keypad mode (DECKPNM)")
-    elif char == "7":
-        print("Save cursor position (DECSC)")
-    elif char == "8":
-        print("Restore cursor position (DECRC)")
-    elif parser.intermediate and parser.intermediate[0] in "()*+":
+    actions = {
+        "=": "Enter Application Keypad mode (DECKPAM)",
+        ">": "Enter Normal Keypad mode (DECKPNM)",
+        "7": "Save cursor position (DECSC)",
+        "8": "Restore cursor position (DECRC)",
+    }
+    if char in actions:
+        return actions[char]
+    if parser.intermediate and parser.intermediate[0] in "()*+":
         # 94-character sets
         code = parser.intermediate[1:] + char
         charset = {
@@ -495,8 +517,8 @@ def describe_esc(parser: Parser, char_: int) -> None:
             "&4": "DEC Cyrillic",
         }.get(code, f"unknown ({code!r}) {_UNKNOWN_TAG}")
         element = {"(": "G0", ")": "G1", "*": "G2", "+": "G3"}[parser.intermediate[0]]
-        print(f"Set {element} character set to {charset}")
-    elif parser.intermediate and parser.intermediate[0] in "-./":
+        return f"Set {element} character set to {charset}"
+    if parser.intermediate and parser.intermediate[0] in "-./":
         # 96-character sets
         charset = {
             "A": "Latin-1 Supplemental",
@@ -507,13 +529,13 @@ def describe_esc(parser: Parser, char_: int) -> None:
             "M": "Latin-5 Supplemental",
         }.get(char, f"unknown ({char}) {_UNKNOWN_TAG}")
         element = {"-": "G1", ".": "G2", "/": "G3"}[parser.intermediate[0]]
-        print(f"Set {element} character set to ISO {charset}")
-    else:
-        describe_unknown("ESC", parser, char_)
+        return f"Set {element} character set to ISO {charset}"
+    return describe_unknown("ESC", parser, char_)
 
 
-def describe_sgr(params: List[Union[Optional[int], List[Optional[int]]]]) -> None:
+def describe_sgr(params: List[Union[Optional[int], List[Optional[int]]]]) -> Lines:
     unknown_message = f"Unknown SGR sequence: {params} {_UNKNOWN_TAG}"
+    lines = Lines()
     while params:
         p = params.pop(0)
         if isinstance(p, list):
@@ -620,7 +642,8 @@ def describe_sgr(params: List[Union[Optional[int], List[Optional[int]]]]) -> Non
             "reset color": "Reset {which} color",
             "custom": "{message}",
         }
-        print(format_strings.get(info["type"], unknown_message).format(**info))
+        lines += format_strings.get(info["type"], unknown_message).format(**info)
+    return lines
 
 
 def maybe_plural(count: int, singular: str, plural: Optional[str] = None) -> str:
@@ -712,7 +735,7 @@ PRIVATE_MODES = {
 }
 
 
-def describe_csi(parser: Parser, char_: int) -> None:
+def describe_csi(parser: Parser, char_: int) -> Union[str, Lines]:
     assert char_ >= 0
     char = chr(char_)
     intermediate = parser.intermediate
@@ -722,74 +745,71 @@ def describe_csi(parser: Parser, char_: int) -> None:
             direction = {"A": "up", "B": "down", "C": "forward", "D": "backward"}[char]
             count = params.get(0, default=1)
             thing = maybe_plural(count, "line" if direction in "AB" else "column")
-            print(f"Cursor {direction} {count} {thing} (CSI {char})")
-        elif char in "G`":
+            return f"Cursor {direction} {count} {thing} (CSI {char})"
+        if char in "G`":
             col = params.get(0, default=1)
-            print(f"Move cursor to column {col} (CSI {char})")
-        elif char in "Hf":
+            return f"Move cursor to column {col} (CSI {char})"
+        if char in "Hf":
             row = params.get(0, default=1)
             col = params.get(1, default=1)
-            print(f"Move cursor to row {row}, column {col} (CSI {char})")
-        elif char == "J":
+            return f"Move cursor to row {row}, column {col} (CSI {char})"
+        if char == "J":
             desc = {
                 0: "Erase display below current line",
                 1: "Erase display above current line",
                 2: "Erase entire display",
                 3: "Erase scroll-back",
             }[params.get(0, default=0)]
-            print(f"{desc} (CSI J)")
-        elif char == "K":
+            return f"{desc} (CSI J)"
+        if char == "K":
             desc = {
                 0: "Erase line right of cursor",
                 1: "Erase line left of cursor",
                 2: "Erase line",
             }[params.get(0, default=0)]
-            print(f"{desc} (CSI K)")
-        elif char in "LM":
+            return f"{desc} (CSI K)"
+        if char in "LM":
             action = {"L": "Insert", "M": "Delete"}[char]
             count = params.get(0, default=1)
-            print(f"{action} {count} {maybe_plural(count, 'line')} (CSI {char})")
-        elif char in "ST":
+            return f"{action} {count} {maybe_plural(count, 'line')} (CSI {char})"
+        if char in "ST":
             direction = {"S": "up", "T": "down"}[char]
             count = params.get(0, default=1)
-            print(
+            return (
                 f"Scroll {direction} {count} {maybe_plural(count, 'line')} (CSI {char})"
             )
-        elif char == "X":
+        if char == "X":
             count = params.get(0, default=1)
-            print(f"Erase {count} {maybe_plural(count, 'character')} right (CSI X)")
-        elif char == "d":
+            return f"Erase {count} {maybe_plural(count, 'character')} right (CSI X)"
+        if char == "d":
             row = params.get(0, default=1)
-            print(f"Move cursor to row {row} (CSI d)")
-        elif char == "m":
-            describe_sgr(params)
-        elif char == "n":
+            return f"Move cursor to row {row} (CSI d)"
+        if char == "m":
+            return describe_sgr(params)
+        if char == "n":
             if params[0] == 5:
-                print("Request device status report (CSI n)")
-            elif params[0] == 6:
-                print("Request cursor position report (CSI n)")
-        elif char == "r":
+                return "Request device status report (CSI n)"
+            if params[0] == 6:
+                return "Request cursor position report (CSI n)"
+        if char == "r":
             top = params.get(0, default=1)
             bottom = params.get(1, default="bottom")
             if top == 1 and bottom == "bottom":
-                print("Reset scrolling region (CSI r)")
-            else:
-                print(f"Set scrolling region to rows {top}-{bottom} (CSI r)")
-        elif char == "s":
+                return "Reset scrolling region (CSI r)"
+            return f"Set scrolling region to rows {top}-{bottom} (CSI r)"
+        if char == "s":
             left = params.get(0, default=1)
             right: Union[int, str] = params.get(1, default=0)
             if right == 0:
                 right = "end"
-            print(f"Set margin to columns {left}-{right} (CSI s)")
-        elif char == "t" and params.get(0, default=0) in (22, 23):
+            return f"Set margin to columns {left}-{right} (CSI s)"
+        if char == "t" and params.get(0, default=0) in (22, 23):
             action = {22: "Push", 23: "Pop"}[params.get(0, default=0)]
             what = {0: "icon and title", 1: "icon", 2: "title"}[
                 params.get(1, default=0)
             ]
-            print(f"{action} terminal window {what} (CSI t)")
-        else:
-            describe_unknown("CSI", parser, char_)
-    elif intermediate in ("", "?") and char in "hl":
+            return f"{action} terminal window {what} (CSI t)"
+    if intermediate in ("", "?") and char in "hl":
         if not intermediate:
             # set/reset mode (SM/RM)
             action = {"h": "Set mode", "l": "Reset mode"}[char] + f" (CSI {char})"
@@ -808,13 +828,13 @@ def describe_csi(parser: Parser, char_: int) -> None:
 
         action = f"{action}: ".ljust(20)
         if not desc_parts:
-            print(f"{action} No parameters")
-        elif len(desc_parts) == 1:
-            print(f"{action} {desc_parts[0]}")
-        if len(desc_parts) > 1:
-            print(f"{action}")
-            print("  " + "\n  ".join(desc_parts))
-    elif intermediate == ">" and char == "m":
+            return f"{action} No parameters"
+        if len(desc_parts) == 1:
+            return f"{action} {desc_parts[0]}"
+        lines = Lines(f"{action.rstrip()}")
+        lines += ("  " + x for x in desc_parts)
+        return lines
+    if intermediate == ">" and char == "m":
         opt_name = {
             0: "modifyKeyboard",
             1: "modifyCursorKeys",
@@ -822,12 +842,11 @@ def describe_csi(parser: Parser, char_: int) -> None:
             4: "modifyOtherKeys",
         }[params.get(0, default=0)]
         if not params:
-            print("Reset all xterm key modifier options")
-        elif len(params) == 1 or params[1] is None:
-            print(f"Reset xterm {opt_name} option")
-        else:
-            print(f"Set xterm {opt_name} option to {params[1]}")
-    elif intermediate in ("$", "?$") and char == "p":
+            return "Reset all xterm key modifier options"
+        if len(params) == 1 or params[1] is None:
+            return f"Reset xterm {opt_name} option"
+        return f"Set xterm {opt_name} option to {params[1]}"
+    if intermediate in ("$", "?$") and char == "p":
         if intermediate == "$":
             desc = "mode"
             mode = ANSI_MODES[params.get(0, default=0)]
@@ -835,8 +854,8 @@ def describe_csi(parser: Parser, char_: int) -> None:
             desc = "private mode"
             mode = PRIVATE_MODES[params.get(0, default=0)]
         action = f"Get {desc}:".ljust(20)
-        print(f"{action} {mode}")
-    elif intermediate == " " and char == "q":
+        return f"{action} {mode}"
+    if intermediate == " " and char == "q":
         # select cursor style (DECSCUSR)
         desc = {
             0: "default",
@@ -847,26 +866,26 @@ def describe_csi(parser: Parser, char_: int) -> None:
             5: "blinking bar",
             6: "steady bar",
         }[params.get(0, default=0)]
-        print(f"Change cursor to {desc}")
-    elif intermediate in ("", ">", "=") and char == "c" and not params:
+        return f"Change cursor to {desc}"
+    if intermediate in ("", ">", "=") and char == "c" and not params:
         version = {"": "primary", ">": "secondary", "=": "tertiary"}[intermediate]
         seq = f"CSI {intermediate + ' ' if intermediate else ''}{char}"
-        print(f"Get {version} device attributes ({seq})")
-    elif intermediate == ">" and char == "q":
-        print("Request xterm name and version")
-    else:
-        describe_unknown("CSI", parser, char_)
+        return f"Get {version} device attributes ({seq})"
+    if intermediate == ">" and char == "q":
+        return "Request xterm name and version"
+    return describe_unknown("CSI", parser, char_)
 
 
-def describe_unknown(name: str, parser: Parser, char: int) -> None:
+def describe_unknown(name: str, parser: Parser, char: int) -> Lines:
     if parser.intermediate:
         intermediates = " ".join({" ": "SP"}.get(x, x) for x in parser.intermediate)
         desc = f"{intermediates} {chr(char)}"
     else:
         desc = chr(char)
-    print(f"Received {name} {desc} {_UNKNOWN_TAG}")
+    lines = Lines(f"Received {name} {desc} {_UNKNOWN_TAG}")
     if parser.parameters:
-        print(f"  Parameters: {parser.parameters}")
+        lines += f"  Parameters: {parser.parameters}"
+    return lines
 
 
 last_action: Optional[Action] = None
@@ -912,19 +931,19 @@ def parser_callback(parser: Parser, action: Action, char: int) -> None:
 
     # execute
     if action is A.execute:
-        describe_exec(char)
+        print(describe_exec(char))
 
     # esc_dispatch
     # csi_dispatch
     if action is A.esc_dispatch:
-        describe_esc(parser, char)
+        print(describe_esc(parser, char))
     if action is A.csi_dispatch:
-        describe_csi(parser, char)
+        print(describe_csi(parser, char))
 
     # hook
     if action is A.hook:
         print("Start DCS hook:")
-        describe_generic(parser, char)
+        print(describe_generic(parser, char))
     # put
     if action is A.put:
         print_raw(char)
