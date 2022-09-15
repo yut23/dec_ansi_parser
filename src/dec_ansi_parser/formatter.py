@@ -1,6 +1,5 @@
-#!/usr/bin/env python3
 # pylint: disable=too-many-branches, too-many-statements, too-many-nested-blocks
-# pylint: disable=too-many-locals, too-many-return-statements
+# pylint: disable=too-many-locals, too-many-return-statements, too-few-public-methods
 import abc
 import argparse
 import sys
@@ -602,17 +601,11 @@ def main() -> None:
         help="include extra debugging output (only works with --vtparse)",
     )
     ap.add_argument(
-        "-s",
-        "--script",
-        action="store_true",
-        help="skip inline metadata in a script(1) output file",
-    )
-    ap.add_argument(
         "file",
         nargs="?",
         default="-",
         type=argparse.FileType("rb"),
-        help="the file to parse",
+        help="the file to parse, or - for stdin (defaults to stdin)",
     )
     args = ap.parse_args()
     handler: BaseHandler
@@ -626,7 +619,3 @@ def main() -> None:
     if hasattr(infile, "buffer"):
         infile = infile.buffer
     parser_.parse(infile)
-
-
-if __name__ == "__main__":
-    main()

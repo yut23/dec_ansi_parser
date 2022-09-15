@@ -280,6 +280,24 @@ def expand_table(
 
 state_transitions = expand_table(range_table, anywhere_table)
 
+T = TypeVar("T")
+
+
+class Parameters(List[Union[Optional[int], List[Optional[int]]]]):
+    def get(self, key: int, *, default: Union[int, T]) -> Union[int, T]:
+        try:
+            val = self[key]
+        except IndexError:
+            return default
+        if isinstance(val, list):
+            val = val[0] if val else None
+        if val is None:
+            return default
+        return val
+
+    def __bool__(self) -> bool:
+        return len(self) != 0 and self != [None]
+
 
 def try_unicode(stream: IO[bytes]) -> Iterator[Tuple[int, bool]]:
     "Yield a character code and whether the character was encoded as UTF-8."
@@ -399,22 +417,3 @@ class Parser:
                 if action is A.esc_dispatch and chr(char) == "\\":
                     return
             self._cb(self, action, char)
-
-
-T = TypeVar("T")
-
-
-class Parameters(List[Union[Optional[int], List[Optional[int]]]]):
-    def get(self, key: int, *, default: Union[int, T]) -> Union[int, T]:
-        try:
-            val = self[key]
-        except IndexError:
-            return default
-        if isinstance(val, list):
-            val = val[0] if val else None
-        if val is None:
-            return default
-        return val
-
-    def __bool__(self) -> bool:
-        return len(self) != 0 and self != [None]
