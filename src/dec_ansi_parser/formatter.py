@@ -69,8 +69,12 @@ def describe_esc(parser: Parser, char_: int) -> Union[str, Lines]:
         ">": "Enter Normal Keypad mode (DECKPNM)",
         "7": "Save cursor position (DECSC)",
         "8": "Restore cursor position (DECRC)",
+        "D": "Move cursor to next line (IND)",
+        "E": "Move cursor to start of next line (NEL)",
+        "H": "Mark current column as tab stop (HTS)",
+        "M": "Move cursor to previous line (RI)",
     }
-    if char in actions:
+    if not parser.intermediate and char in actions:
         return actions[char]
     if parser.intermediate and parser.intermediate[0] in "()*+":
         # 94-character sets
@@ -270,6 +274,7 @@ PRIVATE_MODES = {
     19: "Set print extent to full screen (DECPEX)",
     25: "Show cursor (DECTCEM)",
     30: "Show scrollbar",
+    34: "Enable right-to-left mode (DECRLM)",
     35: "Enable font-shifting functions",
     38: "Enter Tektronix mode (DECTEK)",
     40: "Allow 80 -> 132 mode",
