@@ -5,9 +5,11 @@ from __future__ import annotations
 import abc
 import argparse
 import sys
+from pathlib import Path
 from typing import Any, Dict, List, Optional, Union, cast
 
 from .parser import Action, Parser
+from .script_reader import ScriptLog
 
 __all__ = ["BaseHandler", "DescriptiveHandler", "VTParseHandler"]
 
@@ -608,6 +610,12 @@ def main() -> None:
         help="include extra debugging output (only works with --vtparse)",
     )
     ap.add_argument(
+        "-s",
+        "--script",
+        action="store_true",
+        help="read input file as a script(1) timing log (not compatible with stdin)",
+    )
+    ap.add_argument(
         "file",
         nargs="?",
         default="-",
@@ -621,8 +629,11 @@ def main() -> None:
     else:
         handler = DescriptiveHandler()
     parser_ = Parser(handler, debug=args.debug and args.vtparse)
-    infile = args.file
-    # work around argparse bug (https://github.com/python/cpython/pull/13165)
-    if hasattr(infile, "buffer"):
-        infile = infile.buffer
+    if args.script:
+        infile = ScriptLog(Path(args.file.name))
+    else:
+        infile = args.file
+        # work around argparse bug (https://github.com/python/cpython/pull/13165)
+        if hasattr(infile, "buffer"):
+            infile = infile.buffer
     parser_.parse(infile)

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import codecs
+import io
 from enum import Enum, auto
 from typing import (
     IO,
@@ -16,6 +17,7 @@ from typing import (
     Tuple,
     TypeVar,
     Union,
+    cast,
 )
 
 __all__ = ["State", "Action", "Parameters", "Parser"]
@@ -301,7 +303,7 @@ class Parameters(List[Union[Optional[int], List[Optional[int]]]]):
         return len(self) != 0 and self != [None]
 
 
-def try_unicode(stream: IO[bytes]) -> Iterator[Tuple[int, bool]]:
+def try_unicode(stream: Union[IO[bytes], io.RawIOBase]) -> Iterator[Tuple[int, bool]]:
     "Yield a character code and whether the character was encoded as UTF-8."
     Decoder = codecs.getincrementaldecoder("utf-8")
     while c := stream.read(1):
@@ -311,7 +313,9 @@ def try_unicode(stream: IO[bytes]) -> Iterator[Tuple[int, bool]]:
                 decoder = Decoder()
                 output = decoder.decode(c)
                 while not output:
-                    output = decoder.decode(stream.read(1))
+                    # read() only returns None if it's non-blocking, which shouldn't
+                    # be the case here
+                    output = decoder.decode(cast(bytes, stream.read(1)))
                 yield ord(output), True
             except UnicodeDecodeError as ex:
                 # print(traceback.format_exc())
@@ -353,7 +357,7 @@ class Parser:
         if self._enable_debug:
             print(*args, **kwargs)
 
-    def parse(self, data: IO[bytes]) -> None:
+    def parse(self, data: Union[IO[bytes], io.RawIOBase]) -> None:
         for char, was_utf8 in try_unicode(data):
             # print(f"got: {char=}, {was_utf8=}")
             trans_table = self._trans[self.state]
