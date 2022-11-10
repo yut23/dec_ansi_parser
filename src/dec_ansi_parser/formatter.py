@@ -1,5 +1,7 @@
 # pylint: disable=too-many-branches, too-many-statements, too-many-nested-blocks
 # pylint: disable=too-many-locals, too-many-return-statements, too-few-public-methods
+from __future__ import annotations
+
 import abc
 import argparse
 import sys
@@ -18,7 +20,7 @@ class Lines:
         if lines is not None:
             self += lines
 
-    def __iadd__(self, other: Any) -> "Lines":
+    def __iadd__(self, other: Any) -> Lines:
         if isinstance(other, Lines):
             self.contents.extend(other.contents)
         elif isinstance(other, str):
@@ -502,13 +504,13 @@ class BaseHandler(abc.ABC):
     def __init__(self) -> None:
         self.last_action: Optional[Action] = None
 
-    def __call__(self, parser: "Parser", action: Optional[Action], char: int) -> None:
+    def __call__(self, parser: Parser, action: Optional[Action], char: int) -> None:
         if action is not None:
             self.handle(parser, action, char)
         self.last_action = action
 
     @abc.abstractmethod
-    def handle(self, parser: "Parser", action: Action, char: int) -> None:
+    def handle(self, parser: Parser, action: Action, char: int) -> None:
         pass
 
 

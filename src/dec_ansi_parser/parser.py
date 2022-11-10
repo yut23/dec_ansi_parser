@@ -1,5 +1,7 @@
 """Terminal control sequence parser, following https://www.vt100.net/emu/dec_ansi_parser"""
 
+from __future__ import annotations
+
 import codecs
 from enum import Enum, auto
 from typing import (
@@ -322,7 +324,7 @@ def try_unicode(stream: IO[bytes]) -> Iterator[Tuple[int, bool]]:
 class Parser:
     def __init__(
         self,
-        callback: Callable[["Parser", Optional[Action], int], None],
+        callback: Callable[[Parser, Optional[Action], int], None],
         debug: bool = False,
     ):
         """Callback may be called with None as the action when the parser is reset."""
