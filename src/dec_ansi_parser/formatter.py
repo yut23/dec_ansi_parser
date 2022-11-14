@@ -406,12 +406,18 @@ def describe_csi(parser: Parser, char_: int) -> Union[str, Lines]:
             if right == 0:
                 right = "end"
             return f"Set margin to columns {left}-{right} (CSI s)"
-        if char == "t" and params.get(0, default=0) in (22, 23):
-            action = {22: "Push", 23: "Pop"}[params.get(0, default=0)]
-            what = {0: "icon and title", 1: "icon", 2: "title"}[
-                params.get(1, default=0)
-            ]
-            return f"{action} terminal window {what} (CSI t)"
+        if char == "t":
+            op = params.get(0, default=0)
+            if op == 8:
+                height = params.get(1, default=0)
+                width = params.get(2, default=0)
+                return f"Resize terminal to {height}x{width} (CSI {op} t)"
+            if op in (22, 23):
+                action = {22: "Push", 23: "Pop"}[params.get(0, default=0)]
+                what = {0: "icon and title", 1: "icon", 2: "title"}[
+                    params.get(1, default=0)
+                ]
+                return f"{action} terminal window {what} (CSI {op} t)"
     if intermediate in ("", "?") and char in "hl":
         if not intermediate:
             # set/reset mode (SM/RM)
