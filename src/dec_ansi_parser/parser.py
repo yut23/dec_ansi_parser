@@ -5,7 +5,7 @@ from __future__ import annotations
 import codecs
 import errno
 import io
-from enum import Enum, auto
+from enum import Enum
 from typing import (
     IO,
     Any,
@@ -26,21 +26,24 @@ __all__ = ["State", "Action", "Parameters", "Parser"]
 
 # anywhere is denoted by None in the table generation code
 class State(Enum):
-    ground = auto()
-    escape = auto()
-    escape_intermediate = auto()
-    csi_entry = auto()
-    csi_param = auto()
-    csi_intermediate = auto()
-    csi_ignore = auto()
-    dcs_entry = auto()
-    dcs_param = auto()
-    dcs_intermediate = auto()
-    dcs_passthrough = auto()
-    dcs_ignore = auto()
-    osc_string = auto()
+    ground = 0
+    escape = 1
+    escape_intermediate = 2
+    csi_entry = 3
+    csi_param = 4
+    csi_intermediate = 5
+    csi_ignore = 6
+    dcs_entry = 7
+    dcs_param = 8
+    dcs_intermediate = 9
+    dcs_passthrough = 10
+    dcs_ignore = 11
+    osc_string = 12
     # sos/pm/apc string
-    other_string = auto()
+    other_string = 13
+
+    def __str__(self) -> str:
+        return self.name.upper()
 
 
 ground = State.ground
@@ -61,20 +64,20 @@ other_string = State.other_string
 
 
 class Action(Enum):
-    ignore = auto()
-    print = auto()
-    execute = auto()
-    clear = auto()
-    collect = auto()
-    param = auto()
-    esc_dispatch = auto()
-    csi_dispatch = auto()
-    hook = auto()
-    put = auto()
-    unhook = auto()
-    osc_start = auto()
-    osc_put = auto()
-    osc_end = auto()
+    ignore = 0
+    print = 1
+    execute = 2
+    clear = 3
+    collect = 4
+    param = 5
+    esc_dispatch = 6
+    csi_dispatch = 7
+    hook = 8
+    put = 9
+    unhook = 10
+    osc_start = 11
+    osc_put = 12
+    osc_end = 13
 
 
 class Transition(NamedTuple):
@@ -307,7 +310,9 @@ class Parameters(List[Union[Optional[int], List[Optional[int]]]]):
 def try_unicode(
     stream: Union[IO[bytes], io.RawIOBase], raw_bytes: bytearray
 ) -> Iterator[int]:
-    """Yield a stream of (character code, whether the character was encoded as UTF-8).
+    """Yield a stream of character codes, with the sign denoting whether they
+    were parsed as raw ASCII or a multibyte UTF-8 sequence (positive if ASCII,
+    negative if UTF-8).
     All bytes read are appended to `raw_bytes`.
     """
     Decoder = codecs.getincrementaldecoder("utf-8")
@@ -332,13 +337,13 @@ def try_unicode(
                     chars = cast(bytes, stream.read(1))
                     raw_bytes.extend(chars)
                     output = decoder.decode(chars)
-                yield ord(output), True
+                yield -ord(output)
             except UnicodeDecodeError as ex:
                 # print(traceback.format_exc())
                 for x in ex.object:
-                    yield x, False
+                    yield x
         else:
-            yield c[0], False
+            yield c[0]
 
 
 class Parser:
@@ -372,16 +377,17 @@ class Parser:
         self.intermediate = ""
         self.parameters = Parameters([None])
 
-    def debug(self, *args: Any, **kwargs: Any) -> None:
+    def debug(self, msg: str, *args: Any, **kwargs: Any) -> None:
         if self._enable_debug:
-            print(*args, **kwargs)
+            print(msg.format(*args), **kwargs)
 
     def parse(self, data: Union[IO[bytes], io.RawIOBase]) -> None:
         for char in try_unicode(data, self.curr_raw):
             trans_table = self._trans[self.state]
-            if was_utf8:
+            if char < 0:
                 # unicode character
                 new_state, action = trans_table[0x7E]
+                char = -char
             else:
                 new_state, action = trans_table[
                     char & 0x7F if 0xA0 <= char <= 0xFF else char
@@ -389,7 +395,7 @@ class Parser:
 
             if new_state is not None:
                 if self.state in on_exit:
-                    self.debug(f"processing on_exit from {self.state.name.upper()}")
+                    self.debug("processing on_exit from {}", self.state)
                     self.process(on_exit[self.state])
                     if self.state in (S.osc_string, S.dcs_passthrough) and char == 0x1B:
                         self.esc_ended_string = True
@@ -397,7 +403,7 @@ class Parser:
                     self.debug("processing action with state change")
                     self.process(action, char)
                 if new_state in on_entry:
-                    self.debug(f"processing on_entry to {new_state.name.upper()}")
+                    self.debug("processing on_entry to {}", new_state)
                     self.process(on_entry[new_state])
                 self.state = new_state
             elif action is not None:
@@ -406,14 +412,25 @@ class Parser:
         self._cb(self, None, -1)
         self.curr_raw.clear()
 
-    def process(self, action: Action, char: int = -1) -> None:
-        if action is A.ignore:
+    def process(
+        self,
+        action: Action,
+        char: int = -1,
+        # optimization: avoid several dict lookups in Action per call by storing
+        # these as local parameters when the function is defined
+        # Saves ~20% on a 1.3MB file with lots of truecolor escape sequences
+        ignore: Action = Action.ignore,
+        clear: Action = Action.clear,
+        collect: Action = Action.collect,
+        param: Action = Action.param,
+    ) -> None:
+        if action is ignore:
             pass
-        elif action is A.clear:
+        elif action is clear:
             self.clear()
-        elif action is A.collect:
+        elif action is collect:
             self.intermediate += chr(char)
-        elif action is A.param:
+        elif action is param:
             assert char >= 0
             if chr(char) == ";":
                 self.parameters.append(None)
@@ -428,9 +445,9 @@ class Parser:
                     ]
             else:
                 assert len(self.parameters) != 0, "parameters should not be empty"
-                lst: List[Union[Optional[int], List[Optional[int]]]]
+                lst: Union[Parameters, List[Optional[int]]]
                 if isinstance(self.parameters[-1], list):
-                    lst = self.parameters[-1]  # type: ignore
+                    lst = self.parameters[-1]
                 else:
                     lst = self.parameters
                 assert lst[-1] is None or isinstance(lst[-1], int)
