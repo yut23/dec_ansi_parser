@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import codecs
+import errno
 import io
 from enum import Enum, auto
 from typing import (
@@ -303,10 +304,23 @@ class Parameters(List[Union[Optional[int], List[Optional[int]]]]):
         return len(self) != 0 and self != [None]
 
 
-def try_unicode(stream: Union[IO[bytes], io.RawIOBase]) -> Iterator[Tuple[int, bool]]:
-    "Yield a character code and whether the character was encoded as UTF-8."
+def try_unicode(
+    stream: Union[IO[bytes], io.RawIOBase], raw_bytes: bytearray
+) -> Iterator[int]:
+    """Yield a stream of (character code, whether the character was encoded as UTF-8).
+    All bytes read are appended to `raw_bytes`.
+    """
     Decoder = codecs.getincrementaldecoder("utf-8")
-    while c := stream.read(1):
+    while True:
+        try:
+            c = stream.read(1)
+        except OSError as e:
+            if e.errno != errno.EIO:
+                raise
+            break  # EIO means EOF on some systems
+        if not c:
+            break
+        raw_bytes.extend(c)
         if 0xC2 <= c[0] <= 0xF4:
             # valid UTF-8 start byte
             try:
@@ -315,7 +329,9 @@ def try_unicode(stream: Union[IO[bytes], io.RawIOBase]) -> Iterator[Tuple[int, b
                 while not output:
                     # read() only returns None if it's non-blocking, which shouldn't
                     # be the case here
-                    output = decoder.decode(cast(bytes, stream.read(1)))
+                    chars = cast(bytes, stream.read(1))
+                    raw_bytes.extend(chars)
+                    output = decoder.decode(chars)
                 yield ord(output), True
             except UnicodeDecodeError as ex:
                 # print(traceback.format_exc())
@@ -331,7 +347,7 @@ class Parser:
         callback: Callable[[Parser, Optional[Action], int], None],
         debug: bool = False,
     ):
-        """Callback may be called with None as the action when the parser is reset."""
+        """Callback will be called with None as the action when the parser is reset and at EOF."""
         self._trans = state_transitions
         self._cb = callback
         self._enable_debug = debug
@@ -342,11 +358,14 @@ class Parser:
         self.parameters = Parameters([None])
         # used to suppress an esc_dispatch after a 2-byte string terminator
         self.esc_ended_string = False
+        # the raw bytes read since the last time callback was called, for reconstruction
+        self.curr_raw = bytearray()
 
     def reset(self) -> None:
         self.state = State.ground
         self.esc_ended_string = False
         self._cb(self, None, -1)
+        self.curr_raw.clear()
         self.clear()
 
     def clear(self) -> None:
@@ -358,8 +377,7 @@ class Parser:
             print(*args, **kwargs)
 
     def parse(self, data: Union[IO[bytes], io.RawIOBase]) -> None:
-        for char, was_utf8 in try_unicode(data):
-            # print(f"got: {char=}, {was_utf8=}")
+        for char in try_unicode(data, self.curr_raw):
             trans_table = self._trans[self.state]
             if was_utf8:
                 # unicode character
@@ -385,6 +403,8 @@ class Parser:
             elif action is not None:
                 self.debug("processing action")
                 self.process(action, char)
+        self._cb(self, None, -1)
+        self.curr_raw.clear()
 
     def process(self, action: Action, char: int = -1) -> None:
         if action is A.ignore:
@@ -423,3 +443,4 @@ class Parser:
                 if action is A.esc_dispatch and chr(char) == "\\":
                     return
             self._cb(self, action, char)
+            self.curr_raw.clear()
