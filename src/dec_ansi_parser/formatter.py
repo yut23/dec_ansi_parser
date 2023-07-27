@@ -6,7 +6,7 @@ import abc
 import argparse
 import sys
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Union, cast
+from typing import Any, Callable, Dict, List, Optional, Union, cast
 
 from .parser import Action, Parser
 from .script_reader import ScriptLog
@@ -606,14 +606,24 @@ class VTParseHandler(BaseHandler):
         print()
 
 
+def null_handler(parser: Parser, action: Optional[Action], char: int) -> None:
+    pass
+
+
 def main() -> None:
     ap = argparse.ArgumentParser()
     ap.add_argument("-v", "--vtparse", action="store_true", help="emulate vtparse_test")
     ap.add_argument(
+        "-n",
+        "--null",
+        action="store_true",
+        help="null handler that does nothing (for profiling)",
+    )
+    ap.add_argument(
         "-d",
         "--debug",
         action="store_true",
-        help="include extra debugging output (only works with --vtparse)",
+        help="include extra debugging output (only works properly with --vtparse)",
     )
     ap.add_argument(
         "-s",
@@ -629,8 +639,10 @@ def main() -> None:
         help="the file to parse, or - for stdin (defaults to stdin)",
     )
     args = ap.parse_args()
-    handler: BaseHandler
-    if args.vtparse:
+    handler: Callable[[Parser, Optional[Action], int], None]
+    if args.null:
+        handler = null_handler
+    elif args.vtparse:
         handler = VTParseHandler()
     else:
         handler = DescriptiveHandler()
