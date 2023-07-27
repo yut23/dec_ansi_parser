@@ -1,6 +1,6 @@
 [tool.poetry]
 name = "dec_ansi_parser"
-version = "0.1.0"
+version = "0.2.0"
 description = "Terminal control sequence parser"
 authors = ["yut23"]
 license = "BSD 3-Clause"
